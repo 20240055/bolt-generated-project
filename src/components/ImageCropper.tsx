@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 interface Point {
   x: number;
@@ -8,85 +8,87 @@ interface Point {
 interface ImageCropperProps {
   imageUrl: string;
   onCropComplete: (cropData: { x: number; y: number; width: number; height: number }) => void;
+  initialCrop?: { x: number; y: number; width: number; height: number };
 }
 
-export function ImageCropper({ imageUrl, onCropComplete }: ImageCropperProps) {
+export function ImageCropper({ imageUrl, onCropComplete, initialCrop }: ImageCropperProps) {
   const [isDragging, setIsDragging] = useState(false);
-  const [startPoint, setStartPoint] = useState<Point | null>(null);
-  const [cropBox, setCropBox] = useState<DOMRect | null>(null);
+  const [offset, setOffset] = useState<Point>({ x: 0, y: 0 });
   const cropAreaRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  function handleMouseDown(e: React.MouseEvent) {
+  const initialCropData = initialCrop || { x: 0.5, y: 0.5, width: 0.5, height: 0.5 };
+
+  useEffect(() => {
+    if (containerRef.current && cropAreaRef.current) {
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const cropWidth = containerRect.width * initialCropData.width;
+      const cropHeight = containerRect.height * initialCropData.height;
+      const cropLeft = containerRect.width * initialCropData.x - cropWidth / 2;
+      const cropTop = containerRect.height * initialCropData.y - cropHeight / 2;
+
+      cropAreaRef.current.style.left = `${cropLeft}px`;
+      cropAreaRef.current.style.top = `${cropTop}px`;
+      cropAreaRef.current.style.width = `${cropWidth}px`;
+      cropAreaRef.current.style.height = `${cropHeight}px`;
+    }
+  }, [initialCropData]);
+
+  function handleMouseDown(e: React.MouseEvent<HTMLDivElement>) {
     setIsDragging(true);
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (rect) {
-      setStartPoint({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
+    if (cropAreaRef.current) {
+      setOffset({
+        x: e.clientX - cropAreaRef.current.offsetLeft,
+        y: e.clientY - cropAreaRef.current.offsetTop,
       });
     }
   }
 
   function handleMouseMove(e: React.MouseEvent) {
-    if (!isDragging || !startPoint || !containerRef.current) return;
+    if (!isDragging || !cropAreaRef.current || !containerRef.current) return;
 
-    const rect = containerRef.current.getBoundingClientRect();
-    const currentX = e.clientX - rect.left;
-    const currentY = e.clientY - rect.top;
+    const containerRect = containerRef.current.getBoundingClientRect();
+    let newLeft = e.clientX - offset.x;
+    let newTop = e.clientY - offset.y;
 
-    const width = Math.abs(currentX - startPoint.x);
-    const height = Math.abs(currentY - startPoint.y);
-    const left = Math.min(currentX, startPoint.x);
-    const top = Math.min(currentY, startPoint.y);
+    // Keep the cropping box within the container bounds
+    newLeft = Math.max(0, Math.min(newLeft, containerRect.width - cropAreaRef.current.offsetWidth));
+    newTop = Math.max(0, Math.min(newTop, containerRect.height - cropAreaRef.current.offsetHeight));
 
-    if (cropAreaRef.current) {
-      cropAreaRef.current.style.left = `${left}px`;
-      cropAreaRef.current.style.top = `${top}px`;
-      cropAreaRef.current.style.width = `${width}px`;
-      cropAreaRef.current.style.height = `${height}px`;
-    }
+    cropAreaRef.current.style.left = `${newLeft}px`;
+    cropAreaRef.current.style.top = `${newTop}px`;
   }
 
   function handleMouseUp() {
-    if (isDragging && cropAreaRef.current) {
+    if (isDragging && cropAreaRef.current && containerRef.current) {
       const rect = cropAreaRef.current.getBoundingClientRect();
-      const containerRect = containerRef.current?.getBoundingClientRect();
-      
-      if (containerRect) {
-        const cropData = {
-          x: (rect.left - containerRect.left) / containerRect.width,
-          y: (rect.top - containerRect.top) / containerRect.height,
-          width: rect.width / containerRect.width,
-          height: rect.height / containerRect.height
-        };
-        onCropComplete(cropData);
-      }
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const cropData = {
+        x: (rect.left - containerRect.left) / containerRect.width,
+        y: (rect.top - containerRect.top) / containerRect.height,
+        width: cropAreaRef.current.offsetWidth / containerRect.width,
+        height: cropAreaRef.current.offsetHeight / containerRect.height,
+      };
+      onCropComplete(cropData);
     }
     setIsDragging(false);
-    setStartPoint(null);
+    setOffset({ x: 0, y: 0 });
   }
 
   return (
-    <div 
+    <div
       ref={containerRef}
-      className="relative w-full h-96 bg-gray-100 cursor-crosshair overflow-hidden"
+      className="relative w-full h-96 bg-gray-100 cursor-move overflow-hidden"
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
     >
-      <img
-        src={imageUrl}
-        alt="Zu beschneidendes Bild"
-        className="w-full h-full object-contain"
+      <img src={imageUrl} alt="Zu beschneidendes Bild" className="w-full h-full object-contain" />
+      <div
+        ref={cropAreaRef}
+        className="absolute border-2 border-white bg-black bg-opacity-30"
       />
-      {isDragging && startPoint && (
-        <div
-          ref={cropAreaRef}
-          className="absolute border-2 border-white bg-black bg-opacity-30"
-        />
-      )}
     </div>
   );
 }
